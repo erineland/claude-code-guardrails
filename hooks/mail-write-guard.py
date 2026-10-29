@@ -16,8 +16,11 @@ Moving mail is recoverable, deleting it is not, so the two are treated different
                                forward, delete_mailbox...) is asked about, never
                                waved through just because it isn't listed yet.
 
-Register in ~/.claude/settings.json under hooks.PreToolUse with
-matcher "mcp__apple-mail__.*".
+Tools are matched on their short name, so a renamed server is guarded the same
+way, provided the matcher still sends it here. Register in ~/.claude/settings.json
+under hooks.PreToolUse with matcher "mcp__.*apple-mail.*".
+
+Fails CLOSED: an unreadable payload, or any error inside the hook, asks.
 """
 
 import json
@@ -53,6 +56,7 @@ GUARDED = {
         "Changing a flag — confirm first.",
     ),
 }
+GUARDED_SHORT = {k.split("__")[-1]: v for k, v in GUARDED.items()}
 
 
 def decide(decision, reason):
@@ -74,15 +78,18 @@ def main():
         decide("ask", "mail-write-guard could not parse the tool call.")
         return
 
-    if tool.split("__")[-1] in READ_ONLY:
+    short = tool.split("__")[-1]
+    if short in READ_ONLY:
         return  # no output = no opinion = normal handling
-    if tool not in GUARDED:
+    if short not in GUARDED_SHORT:
         decide("ask", f"MAIL GUARD: '{tool}' isn't a known read-only mail tool, so it may "
                       "send, move or delete mail. Ask the user first.")
         return
 
-    decision, reason = GUARDED[tool]
-    inp = payload.get("tool_input", {}) or {}
+    decision, reason = GUARDED_SHORT[short]
+    inp = payload.get("tool_input") or {}
+    if not isinstance(inp, dict):
+        inp = {}
     detail = ", ".join(
         f"{k}={inp[k]}" for k in ("message_id", "from_mailbox", "to_mailbox", "to", "subject")
         if k in inp
@@ -94,4 +101,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # A crashing hook is non-blocking in Claude Code, i.e. fails OPEN. Ask instead.
+        decide("ask", "mail-write-guard hit an error checking this call, so it needs the user's OK.")

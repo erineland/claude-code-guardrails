@@ -12,7 +12,7 @@ It never silently denies. It forces "ask", so the user stays the decision-maker 
 the point is that the question is guaranteed to be asked, not that the tool is
 blocked.
 
-Fails CLOSED: if anything goes wrong parsing the payload, it still asks.
+Fails CLOSED: an unreadable payload, or any error inside the hook, asks.
 """
 
 import json
@@ -33,6 +33,8 @@ GUARDED = {
 
 # The 23 read-only tools of @maro-org/ynab-mcp 0.8.0 (checked Oct 2026). Any OTHER tool on a
 # YNAB server (a new write tool, or the same tools under a renamed server) is asked about too.
+# A renamed server is only covered if the hook's matcher still catches it: use "mcp__.*ynab.*",
+# which covers e.g. mcp__ynab-personal__ or a plugin's mcp__plugin_ynab_ynab__, not mcp__budget__.
 READ_ONLY = {
     "detect_anomalies", "detect_recurring_charges", "diagnose_credit_card_debt",
     "forecast_category_balances", "get_accounts", "get_budget_health", "get_budget_summary",
@@ -156,4 +158,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # A crashing hook is non-blocking in Claude Code, i.e. fails OPEN. Ask instead.
+        ask("YNAB WRITE GUARD: hit an error checking this call, so it needs the user's OK.")

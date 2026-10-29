@@ -109,7 +109,7 @@ def main():
     if not transcript_path:
         return
 
-    session_id = hook_input.get("session_id", "unknown-session")
+    session_id = str(hook_input.get("session_id") or "unknown-session")
 
     entries = []
     with open(transcript_path, "r") as f:
@@ -139,7 +139,7 @@ def main():
     time_str = now.strftime("%H%M%S")
 
     os.makedirs(VAULT_DIR, exist_ok=True)
-    filename = f"{date_str}-{time_str}-{session_id[:8]}.md"
+    filename = f"{date_str}-{time_str}-{sanitize_cwd(session_id)[:8]}.md"
     filepath = os.path.join(VAULT_DIR, filename)
 
     header = (
@@ -151,7 +151,9 @@ def main():
     )
     body = redact("\n---\n\n".join(entries))
 
-    with open(filepath, "w") as f:
+    # Owner-only: transcripts can hold things the redaction patterns miss.
+    fd = os.open(filepath, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         f.write(header + body)
 
 

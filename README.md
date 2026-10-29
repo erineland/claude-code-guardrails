@@ -6,13 +6,13 @@ Small, dependency-free hooks that turn "please always ask first" rules from **in
 
 | Hook | Event | What it enforces |
 |---|---|---|
-| `ynab-write-guard.py` | `PreToolUse`, matcher `mcp__ynab__.*` | Every mutating YNAB call (create/edit/delete transactions, budgets, schedules) is forced to a **permission prompt** with a plain-English summary of exactly what would change. Known read-only calls pass straight through; any other tool is asked about. Fails **closed**: if the payload can't be parsed, it still asks. |
-| `mail-write-guard.py` | `PreToolUse`, matcher `mcp__apple-mail__.*` | **Denies** deleting mail outright; forces a prompt before sending, moving, marking read, flagging, or any tool it doesn't know. |
-| `session-to-obsidian.py` | `SessionEnd` | Writes each session transcript to a Markdown folder (e.g. an Obsidian vault), **redacting credentials first**: `*_TOKEN`/`*_KEY`/`*_SECRET` assignments, "my password is …" prose, and form-field values in browser snapshots. Set `CLAUDE_SESSION_LOG_DIR`. |
+| `ynab-write-guard.py` | `PreToolUse`, matcher `mcp__.*ynab.*` | Every mutating YNAB call (create/edit/delete transactions, budgets, schedules) is forced to a **permission prompt** with a plain-English summary of exactly what would change. Known read-only calls pass straight through; any other tool is asked about, including on a renamed server whose name still contains `ynab`. Fails **closed**: if the payload can't be parsed or the hook errors, it still asks. |
+| `mail-write-guard.py` | `PreToolUse`, matcher `mcp__.*apple-mail.*` | **Denies** deleting mail outright; forces a prompt before sending, moving, marking read, flagging, or any tool it doesn't know. |
+| `session-to-obsidian.py` | `SessionEnd` | Writes each session transcript to a Markdown folder (e.g. an Obsidian vault), **redacting credentials first** (best effort, so files are written owner-only): `*_TOKEN`/`*_KEY`/`*_SECRET` assignments, "my password is …" prose, and form-field values in browser snapshots. Set `CLAUDE_SESSION_LOG_DIR`. |
 
 The design rule: **never silently deny something the user might genuinely want — force "ask"**, so the human stays the decision-maker and the question is guaranteed to be asked. Deny only where the action is irreversible and should be done by hand.
 
-Guards are allowlists: a tool the guard doesn't recognise is asked about, never waved through.
+Guards are allowlists: a tool the guard doesn't recognise is asked about, never waved through. A guard only sees what its matcher sends it, so a server renamed to something the matcher misses is not guarded at all.
 
 ### Wiring (`~/.claude/settings.json`)
 
@@ -20,8 +20,8 @@ Guards are allowlists: a tool the guard doesn't recognise is asked about, never 
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "mcp__ynab__.*", "hooks": [{ "type": "command", "command": "/usr/bin/python3 ~/.claude/hooks/ynab-write-guard.py" }] },
-      { "matcher": "mcp__apple-mail__.*", "hooks": [{ "type": "command", "command": "/usr/bin/python3 ~/.claude/hooks/mail-write-guard.py" }] }
+      { "matcher": "mcp__.*ynab.*", "hooks": [{ "type": "command", "command": "/usr/bin/python3 ~/.claude/hooks/ynab-write-guard.py" }] },
+      { "matcher": "mcp__.*apple-mail.*", "hooks": [{ "type": "command", "command": "/usr/bin/python3 ~/.claude/hooks/mail-write-guard.py" }] }
     ],
     "SessionEnd": [
       { "hooks": [{ "type": "command", "command": "/usr/bin/python3 ~/.claude/hooks/session-to-obsidian.py" }] }
