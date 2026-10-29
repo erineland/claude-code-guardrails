@@ -18,8 +18,7 @@ Fails CLOSED: if anything goes wrong parsing the payload, it still asks.
 import json
 import sys
 
-# Every YNAB tool that mutates state. Read-only tools are not listed and pass
-# straight through without a prompt.
+# Every YNAB tool known to mutate state, with a description for the prompt.
 GUARDED = {
     "mcp__ynab__create_transactions": "create transaction(s)",
     "mcp__ynab__update_transactions": "EDIT existing transaction(s)",
@@ -31,6 +30,19 @@ GUARDED = {
     "mcp__ynab__set_category_targets": "change category target(s)",
     "mcp__ynab__undo_operations": "UNDO a previous YNAB operation",
 }
+
+# The 23 read-only tools of @maro-org/ynab-mcp 0.8.0 (checked Oct 2026). Any OTHER tool on a
+# YNAB server (a new write tool, or the same tools under a renamed server) is asked about too.
+READ_ONLY = {
+    "detect_anomalies", "detect_recurring_charges", "diagnose_credit_card_debt",
+    "forecast_category_balances", "get_accounts", "get_budget_health", "get_budget_summary",
+    "get_income_expense_summary", "get_monthly_budget", "get_scheduled_transactions",
+    "get_spending_analysis", "get_spending_breakdown", "get_spending_trends",
+    "get_spending_velocity", "get_targets", "list_budgets", "list_categories",
+    "list_undo_history", "search_transactions", "suggest_budget_allocation",
+    "suggest_overspending_coverage", "suggest_transaction_categories", "sync_budget_data",
+}
+GUARDED_SHORT = {k.split("__")[-1]: v for k, v in GUARDED.items()}
 
 # Deleting a schedule leaves its already-generated instances intact, so the
 # account balance does not move. Worth saying, because it changes the risk.
@@ -90,19 +102,37 @@ def describe(tool_name, tool_input):
     return lines
 
 
+def ask(reason):
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "permissionDecisionReason": reason,
+        }
+    }))
+    sys.exit(0)
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
+        tool_name = payload.get("tool_name", "")
+        if not isinstance(tool_name, str):
+            raise ValueError("tool_name is not a string")
     except Exception:
-        payload = {}
+        # fail CLOSED: an unreadable payload is asked about, never waved through
+        ask("YNAB WRITE GUARD: couldn't read this YNAB call, so it needs the user's OK.")
 
-    tool_name = payload.get("tool_name", "")
-
-    # Not a guarded tool: stay out of the way entirely.
-    if tool_name not in GUARDED:
+    parts = tool_name.split("__")
+    short = parts[-1]
+    # Read-only tool on a YNAB server: stay out of the way entirely.
+    if short in READ_ONLY:
         sys.exit(0)
+    if tool_name not in GUARDED and short not in GUARDED_SHORT:
+        ask(f"YNAB WRITE GUARD: '{tool_name}' is not one of the known read-only YNAB tools, "
+            "so it may change the user's budget. Ask them first.")
 
-    action = GUARDED[tool_name]
+    action = GUARDED.get(tool_name) or GUARDED_SHORT[short]
     tool_input = payload.get("tool_input") or {}
 
     try:
@@ -116,22 +146,13 @@ def main():
         "without explicit per-action confirmation. Every transaction individually "
         "unless a batch was explicitly approved."
     )
-    if tool_name in BALANCE_SAFE:
+    if tool_name in BALANCE_SAFE or short == "delete_scheduled_transactions":
         footer += (
             " Note: deleting a SCHEDULE leaves its existing instances in place, "
             "so the account balance will not move."
         )
 
-    reason = "\n".join([header, ""] + detail + ["", footer])
-
-    print(json.dumps({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
-            "permissionDecisionReason": reason,
-        }
-    }))
-    sys.exit(0)
+    ask("\n".join([header, ""] + detail + ["", footer]))
 
 
 if __name__ == "__main__":

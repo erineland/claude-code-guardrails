@@ -10,7 +10,11 @@ Moving mail is recoverable, deleting it is not, so the two are treated different
                                or via an explicitly approved, named batch.
   move/mark_read/flag       -> force a permission prompt (ask).
   send_email                -> force a permission prompt (ask).
-  everything else (reads)   -> allow.
+  known reads               -> allow.
+  anything unknown          -> force a permission prompt (ask). The guard is an
+                               allowlist: a new tool on the mail server (reply,
+                               forward, delete_mailbox...) is asked about, never
+                               waved through just because it isn't listed yet.
 
 Register in ~/.claude/settings.json under hooks.PreToolUse with
 matcher "mcp__apple-mail__.*".
@@ -18,6 +22,10 @@ matcher "mcp__apple-mail__.*".
 
 import json
 import sys
+
+# Read-only tools of the apple-mail MCP, matched on the short name. These pass
+# straight through; every other tool on the server is asked about.
+READ_ONLY = {"get_message", "get_unread_count", "list_mailboxes", "list_messages", "search_messages"}
 
 # tool name -> (decision, reason)
 GUARDED = {
@@ -47,21 +55,31 @@ GUARDED = {
 }
 
 
+def decide(decision, reason):
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": decision,
+        "permissionDecisionReason": reason,
+    }}))
+
+
 def main():
     try:
         payload = json.load(sys.stdin)
+        tool = payload.get("tool_name", "")
+        if not isinstance(tool, str):
+            raise ValueError("tool_name is not a string")
     except Exception:
         # Fail closed: if we cannot parse the call, do not silently allow it.
-        print(json.dumps({"hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
-            "permissionDecisionReason": "mail-write-guard could not parse the tool call.",
-        }}))
+        decide("ask", "mail-write-guard could not parse the tool call.")
         return
 
-    tool = payload.get("tool_name", "")
-    if tool not in GUARDED:
+    if tool.split("__")[-1] in READ_ONLY:
         return  # no output = no opinion = normal handling
+    if tool not in GUARDED:
+        decide("ask", f"MAIL GUARD: '{tool}' isn't a known read-only mail tool, so it may "
+                      "send, move or delete mail. Ask the user first.")
+        return
 
     decision, reason = GUARDED[tool]
     inp = payload.get("tool_input", {}) or {}
@@ -72,11 +90,7 @@ def main():
     if detail:
         reason = f"{reason}\n  → {detail}"
 
-    print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": decision,
-        "permissionDecisionReason": reason,
-    }}))
+    decide(decision, reason)
 
 
 if __name__ == "__main__":

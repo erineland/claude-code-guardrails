@@ -6,11 +6,13 @@ Small, dependency-free hooks that turn "please always ask first" rules from **in
 
 | Hook | Event | What it enforces |
 |---|---|---|
-| `ynab-write-guard.py` | `PreToolUse`, matcher `mcp__ynab__.*` | Every mutating YNAB call (create/edit/delete transactions, budgets, schedules) is forced to a **permission prompt** with a plain-English summary of exactly what would change. Read-only calls pass straight through. Fails **closed**: if the payload can't be parsed, it still asks. |
-| `mail-write-guard.py` | `PreToolUse`, matcher `mcp__apple-mail__.*` | **Denies** deleting mail outright; forces a prompt before sending, moving, marking read or flagging. |
+| `ynab-write-guard.py` | `PreToolUse`, matcher `mcp__ynab__.*` | Every mutating YNAB call (create/edit/delete transactions, budgets, schedules) is forced to a **permission prompt** with a plain-English summary of exactly what would change. Known read-only calls pass straight through; any other tool is asked about. Fails **closed**: if the payload can't be parsed, it still asks. |
+| `mail-write-guard.py` | `PreToolUse`, matcher `mcp__apple-mail__.*` | **Denies** deleting mail outright; forces a prompt before sending, moving, marking read, flagging, or any tool it doesn't know. |
 | `session-to-obsidian.py` | `SessionEnd` | Writes each session transcript to a Markdown folder (e.g. an Obsidian vault), **redacting credentials first**: `*_TOKEN`/`*_KEY`/`*_SECRET` assignments, "my password is …" prose, and form-field values in browser snapshots. Set `CLAUDE_SESSION_LOG_DIR`. |
 
 The design rule: **never silently deny something the user might genuinely want — force "ask"**, so the human stays the decision-maker and the question is guaranteed to be asked. Deny only where the action is irreversible and should be done by hand.
+
+Guards are allowlists: a tool the guard doesn't recognise is asked about, never waved through.
 
 ### Wiring (`~/.claude/settings.json`)
 
@@ -28,7 +30,7 @@ The design rule: **never silently deny something the user might genuinely want �
 }
 ```
 
-Add any new write tool to the `GUARDED` dict in the relevant guard.
+Add any new write tool to the `GUARDED` dict (for a tailored prompt) and any new read tool to `READ_ONLY` (so it stops prompting) in the relevant guard. Tests: `python3 -m unittest discover tests`.
 
 ## Status line (`statusline.sh`)
 
